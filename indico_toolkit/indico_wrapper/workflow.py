@@ -198,17 +198,47 @@ class Workflow(IndicoWrapper):
         workflow_id: int,
         submission_filter: SubmissionFilter,
         submission_ids: List[int] = None,
+        limit: int = 100,
+        offset: int = 0,
     ) -> List[Submission]:
-        return self.client.call(
-            ListSubmissions(
-                workflow_ids=[workflow_id],
-                submission_ids=submission_ids,
-                filters=submission_filter,
+        submissions = []
+        while True:
+            batch = self.client.call(
+                ListSubmissions(
+                    workflow_ids=[workflow_id],
+                    submission_ids=submission_ids,
+                    filters=submission_filter,
+                    limit=limit,
+                    offset=offset,
+                )
             )
-        )
+            if not batch:
+                break
+            submissions.extend(batch)
+            offset += limit
+        return submissions
 
     def _error_handle(self, message: str, ignore_exceptions: bool):
         if ignore_exceptions:
             print(f"Ignoring exception and continuing: {message}")
         else:
             raise Exception(message)
+    
+    def get_all_submissions_status(self, workflow_id: int) -> List[dict]:
+        try:
+            submissions = self._get_list_of_submissions(workflow_id, COMPLETE_FILTER)
+        except IndicoRequestError as e:
+            self._error_handle(str(e), ignore_exceptions=True)
+            return []
+        return [submission.to_dict() for submission in submissions]
+    
+    def save_submissions_to_csv(self, submissions: List[dict], filename: str):
+        import csv
+        if not submissions:
+            print("No submissions to save.")
+            return
+        keys = submissions[0].keys()
+        with open(filename, 'w', newline='') as output_file:
+            dict_writer = csv.DictWriter(output_file, keys)
+            dict_writer.writeheader()
+            dict_writer.writerows(submissions)
